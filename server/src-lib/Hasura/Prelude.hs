@@ -17,6 +17,7 @@ import           Data.Bool                  as M (bool)
 import           Data.Either                as M (lefts, partitionEithers,
                                                   rights)
 import           Data.Foldable              as M (foldrM, toList)
+import           Data.Functor               as M (($>), (<&>))
 import           Data.Hashable              as M (Hashable)
 import           Data.List                  as M (find, foldl', group,
                                                   intercalate, intersect,
@@ -42,6 +43,3 @@ onJust m action = maybe (return ()) action m
 
 onLeft :: (Monad m) => Either e a -> (e -> m a) -> m a
 onLeft e f = either f return e
-
-
-
