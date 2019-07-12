@@ -19,7 +19,7 @@ import qualified Data.Yaml.TH                as Y
 import qualified Database.PG.Query           as Q
 
 curCatalogVer :: T.Text
-curCatalogVer = "17"
+curCatalogVer = "18"
 
 migrateMetadata
   :: ( MonadTx m
@@ -102,15 +102,6 @@ setAsSystemDefinedFor16 =
             WHERE table_schema = 'hdb_catalog'
              AND  table_name = 'hdb_query_collection';
            |]
-
-getCatalogVersion
-  :: (MonadTx m)
-  => m T.Text
-getCatalogVersion = do
-  res <- liftTx $ Q.withQE defaultTxErrorHandler [Q.sql|
-                SELECT version FROM hdb_catalog.hdb_version
-                    |] () False
-  return $ runIdentity $ Q.getRow res
 
 from08To1 :: (MonadTx m) => m ()
 from08To1 = liftTx $ Q.catchE defaultTxErrorHandler $ do
@@ -327,6 +318,24 @@ from16To17 =
              AND  table_name = 'hdb_allowlist';
            |]
 
+from17to18
+  :: ( MonadTx m
+     , HasHttpManager m
+     , HasSQLGenCtx m
+     , CacheRWM m
+     , UserInfoM m
+     , MonadIO m )
+  => m ()
+from17to18 = do
+  Q.Discard () <- liftTx $ Q.multiQE defaultTxErrorHandler
+    $(Q.sqlFromFile "src-rsr/migrate_from_17_to_18.sql")
+  migrateMetadata False
+    $$(Y.decodeFile "src-rsr/migrate_metadata_from_17_to_18.yaml")
+  return ()
+
+migrateToPostgres10 :: m ()
+migrateToPostgres10 = undefined
+
 migrateCatalog
   :: ( MonadTx m
      , CacheRWM m
@@ -335,76 +344,78 @@ migrateCatalog
      , HasHttpManager m
      , HasSQLGenCtx m
      )
-  => UTCTime -> m String
+  => UTCTime -> m Text
 migrateCatalog migrationTime = do
-  preVer <- getCatalogVersion
-  if | preVer == curCatalogVer ->
-         return $ "already at the latest version. current version: "
-                   <> show curCatalogVer
-     | preVer == "0.8" -> from08ToCurrent
-     | preVer == "1"   -> from1ToCurrent
-     | preVer == "2"   -> from2ToCurrent
-     | preVer == "3"   -> from3ToCurrent
-     | preVer == "4"   -> from4ToCurrent
-     | preVer == "5"   -> from5ToCurrent
-     | preVer == "6"   -> from6ToCurrent
-     | preVer == "7"   -> from7ToCurrent
-     | preVer == "8"   -> from8ToCurrent
-     | preVer == "9"   -> from9ToCurrent
-     | preVer == "10"  -> from10ToCurrent
-     | preVer == "11"  -> from11ToCurrent
-     | preVer == "12"  -> from12ToCurrent
-     | preVer == "13"  -> from13ToCurrent
-     | preVer == "14"  -> from14ToCurrent
-     | preVer == "15"  -> from15ToCurrent
-     | preVer == "16"  -> from16ToCurrent
-     | otherwise -> throw400 NotSupported $
-                    "unsupported version : " <> preVer
+  (previousSchemaVersion, previousPostgresVersion) <- getPreviousVersions
+  currentPostgresVersion <- liftTx Q.serverVersion
+
+  schemaMessage <- migrateSchema previousSchemaVersion
+  postgresMessage <- migratePostgres previousPostgresVersion currentPostgresVersion
+  let migrateMessages = catMaybes [schemaMessage, postgresMessage]
+
+  if null migrateMessages
+    then return $ "already at the latest schema version. current version: " <> show curCatalogVer
+    else do
+      finalizeMigration currentPostgresVersion
+      return $ "successfully migrated to " <> T.concat (T.intercalate " and " migrateMessages)
+
   where
-    from16ToCurrent = from16To17 >> postMigrate
+    migrateSchema previousVersion
+      | previousVersion == curCatalogVer = return Nothing
+      | otherwise = case neededMigrations of
+          [] -> throw400 NotSupported $ "unsupported schema version: " <> previousVersion
+          _ -> do
+            traverse_ snd neededMigrations
+            return . Just $ "schema version " <> T.pack (show curCatalogVer)
+      where
+        neededMigrations = dropWhile ((/= previousVersion) . fst) migrations
+        migrations =
+          [ ("0.8", from08To1)
+          , ("1", from1To2)
+          , ("2", from2To3)
+          , ("3", from3To4)
+          , ("4", from4To5)
+          , ("5", from5To6)
+          , ("6", from6To7)
+          , ("7", from7To8)
+          , ("8", from8To9)
+          , ("9", from9To10)
+          , ("10", from10To11)
+          , ("11", from11To12)
+          , ("12", from12To13)
+          , ("13", from13To14)
+          , ("14", from14To15)
+          , ("15", from15To16)
+          , ("16", from16To17)
+          ]
 
-    from15ToCurrent = from15To16 >> from16ToCurrent
+    migratePostgres previousVersion currentVersion
+      | previousVersion == currentVersion = return Nothing
+      | previousVersion > currentVersion = throw400 NotSupported
+          $ "database was previously used with newer Postgres version "
+          <> "(previous version: " <> T.pack (show previousVersion) ", "
+          <> "current version: " <> T.pack (show currentVersion) ")"
+      | otherwise = do
+          when (previousVersion < 100000 && currentVersion >= 100000)
+            migrateToPostgres10
+          return . Just $ "Postgres version " <> show currentPostgresVersion
 
-    from14ToCurrent = from14To15 >> from15ToCurrent
+    getPreviousVersions =
+      fmap Q.getRow . liftTx $ Q.withQE defaultTxErrorHandler [Q.sql|
+          SELECT version, pg_version FROM hdb_catalog.hdb_version
+      |] () False
 
-    from13ToCurrent = from13To14 >> from14ToCurrent
-
-    from12ToCurrent = from12To13 >> from13ToCurrent
-
-    from11ToCurrent = from11To12 >> from12ToCurrent
-
-    from10ToCurrent = from10To11 >> from11ToCurrent
-
-    from9ToCurrent = from9To10 >> from10ToCurrent
-
-    from8ToCurrent = from8To9 >> from9ToCurrent
-
-    from7ToCurrent = from7To8 >> from8ToCurrent
-
-    from6ToCurrent = from6To7 >> from7ToCurrent
-
-    from5ToCurrent = from5To6 >> from6ToCurrent
-
-    from4ToCurrent = from4To5 >> from5ToCurrent
-
-    from3ToCurrent = from3To4 >> from4ToCurrent
-
-    from2ToCurrent = from2To3 >> from3ToCurrent
-
-    from1ToCurrent = from1To2 >> from2ToCurrent
-
-    from08ToCurrent = from08To1 >> from1ToCurrent
-
-    postMigrate = do
+    finalizeMigration currentPostgresVersion = do
        -- update the catalog version
-       updateVersion
+       updateVersions
        -- try building the schema cache
        buildSchemaCacheStrict
        return $ "successfully migrated to " ++ show curCatalogVer
 
-    updateVersion =
+    updateVersions currentPostgresVersion =
       liftTx $ Q.unitQE defaultTxErrorHandler [Q.sql|
-                UPDATE "hdb_catalog"."hdb_version"
-                   SET "version" = $1,
-                       "upgraded_on" = $2
-                    |] (curCatalogVer, migrationTime) False
+        UPDATE "hdb_catalog"."hdb_version"
+           SET "version" = $1,
+               "pg_version" = $2,
+               "upgraded_on" = $3
+      |] (curCatalogVer, currentPostgresVersion, migrationTime) False
