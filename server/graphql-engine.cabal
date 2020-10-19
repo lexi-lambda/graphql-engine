@@ -80,7 +80,7 @@ common common-all
 
 common common-exe
   ghc-options:
-    -threaded -rtsopts
+    -threaded -rtsopts -eventlog
     -- `-I0` disables idle GC. We do this in application code now. See 'ourIdleGC' for details.
     -- `-T` is required to collect the stats we use in 'ourIdleGC'.
     --
@@ -97,7 +97,7 @@ common common-exe
     -- `--disable-delayed-os-memory-return` seems to help lower reported residency, in particular
     -- in situations where we seem to be dealing with haskell heap fragmentation. This is more a
     -- workaround for limitations in monitoring tools than anything...
-    "-with-rtsopts=-N -I0 -T -qn2 -kc8K --disable-delayed-os-memory-return"
+    "-with-rtsopts=-N -qg"
 
 library
   import: common-all
@@ -479,12 +479,14 @@ executable graphql-engine
   main-is:           Main.hs
   build-depends:     base
                    , graphql-engine
+                   , graphql-parser
                    , bytestring
                    , pg-client
                    , text
                    , text-conversions
                    , unix
                    , ekg-core
+                   , unordered-containers
 
 test-suite graphql-engine-tests
   import: common-all, common-exe

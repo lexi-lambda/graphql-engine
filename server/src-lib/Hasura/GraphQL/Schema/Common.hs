@@ -1,3 +1,4 @@
+{-# OPTIONS_GHC -fprof-auto-top #-}
 module Hasura.GraphQL.Schema.Common where
 
 import           Hasura.Prelude

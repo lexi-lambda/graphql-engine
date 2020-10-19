@@ -1,3 +1,4 @@
+{-# OPTIONS_GHC -fprof-auto-top #-}
 {-# LANGUAGE StrictData #-}
 
 module Hasura.GraphQL.Parser.Column
@@ -75,6 +76,7 @@ column
   -> Nullability
   -> m (Parser 'Both n (Opaque PGColumnValue))
 column columnType (Nullability isNullable) =
+  memoizeOn 'column (columnType, isNullable) $
   -- TODO(PDV): It might be worth memoizing this function even though it isn’t
   -- recursive simply for performance reasons, since it’s likely to be hammered
   -- during schema generation. Need to profile to see whether or not it’s a win.

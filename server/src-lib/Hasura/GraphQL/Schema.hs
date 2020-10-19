@@ -1,3 +1,4 @@
+{-# OPTIONS_GHC -fprof-auto-top #-}
 {-# LANGUAGE Arrows #-}
 module Hasura.GraphQL.Schema
   ( buildGQLContext
@@ -39,6 +40,7 @@ import           Hasura.SQL.Types
 -- | Whether the request is sent with `x-hasura-use-backend-only-permissions` set to `true`.
 data Scenario = Backend | Frontend deriving (Enum, Show, Eq)
 
+-- {-# SCC buildGQLContext #-}
 buildGQLContext
   :: forall arr m
    . ( ArrowChoice arr

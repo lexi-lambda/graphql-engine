@@ -1,3 +1,4 @@
+{-# OPTIONS_GHC -fprof-auto-top #-}
 {-# LANGUAGE ViewPatterns #-}
 
 module Hasura.GraphQL.Schema.Mutation

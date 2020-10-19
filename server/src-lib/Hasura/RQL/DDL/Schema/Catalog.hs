@@ -27,6 +27,7 @@ import           Hasura.RQL.Types
 import           Hasura.RQL.Types.Catalog
 import           Hasura.SQL.Types
 
+{-# SCC fetchCatalogData #-}
 fetchCatalogData :: (MonadTx m) => m CatalogMetadata
 fetchCatalogData =
   liftTx $ Q.getAltJ . runIdentity . Q.getRow <$> Q.withQE defaultTxErrorHandler

@@ -1,3 +1,4 @@
+{-# OPTIONS_GHC -fprof-auto-top #-}
 {-# OPTIONS_HADDOCK not-home #-}
 {-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE StrictData          #-}
@@ -726,7 +727,7 @@ selectionSetObject name description parsers implementsInterfaces = Parser
             parseError $ "field " <> _fName <<> " not found in type: " <> squote name
   }
   where
-    parserMap = parsers
+    !parserMap = parsers
       & map (\FieldParser{ fDefinition, fParser } -> (getName fDefinition, fParser))
       & M.fromList
     interfaces = mapMaybe (getInterfaceInfo . pType) implementsInterfaces

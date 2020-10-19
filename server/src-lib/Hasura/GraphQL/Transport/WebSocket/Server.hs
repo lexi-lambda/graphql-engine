@@ -292,12 +292,14 @@ createServerApp (WSServer logger@(L.Logger writeLog) serverStatus) wsHandlers !i
       logWSLog logger $ WSLog wsId EAccepted Nothing
       sendQ <- liftIO STM.newTQueueIO
       let !wsConn = WSConn wsId logger conn sendQ a
+#ifndef PROFILING
       -- TODO there are many thunks here. Difficult to trace how much is retained, and
       --      how much of that would be shared anyway.
       --      Requires a fork of 'wai-websockets' and 'websockets', it looks like.
       --      Adding `package` stanzas with -Xstrict -XStrictData for those two packages
       --      helped, cutting the number of thunks approximately in half.
       liftIO $ $assertNFHere wsConn  -- so we don't write thunks to mutable vars
+#endif
 
       let whenAcceptingInsertConn = liftIO $ STM.atomically $ do
             status <- STM.readTVar serverStatus

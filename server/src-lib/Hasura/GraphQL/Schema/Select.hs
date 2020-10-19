@@ -1,3 +1,4 @@
+{-# OPTIONS_GHC -fprof-auto-top #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ViewPatterns    #-}
 -- | Generate table selection schema both for ordinary Hasura-type and

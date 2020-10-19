@@ -58,6 +58,8 @@ import           Hasura.RQL.Types.Catalog
 import           Hasura.Server.Version                    (HasVersion)
 import           Hasura.SQL.Types
 
+import Debug.Trace
+
 buildRebuildableSchemaCache
   :: (HasVersion, MonadIO m, MonadUnique m, MonadTx m, HasHttpManager m, HasSQLGenCtx m)
   => Env.Environment
@@ -91,6 +93,7 @@ instance (Monad m) => CacheRM (CacheRWT m) where
   askSchemaCache = CacheRWT $ gets (lastBuiltSchemaCache . fst)
 
 instance (MonadIO m, MonadTx m) => CacheRWM (CacheRWT m) where
+  {-# SCC buildSchemaCacheWithOptions #-}
   buildSchemaCacheWithOptions buildReason invalidations = CacheRWT do
     (RebuildableSchemaCache _ invalidationKeys rule, oldInvalidations) <- get
     let newInvalidationKeys = invalidateKeys invalidations invalidationKeys
@@ -109,6 +112,7 @@ instance (MonadIO m, MonadTx m) => CacheRWM (CacheRWT m) where
         -- see Note [Keep invalidation keys for inconsistent objects]
         name `elem` getAllRemoteSchemas schemaCache
 
+{-# SCC buildSchemaCacheRule #-}
 buildSchemaCacheRule
   -- Note: by supplying BuildReason via MonadReader, it does not participate in caching, which is
   -- what we want!
@@ -121,15 +125,18 @@ buildSchemaCacheRule env = proc (catalogMetadata, invalidationKeys) -> do
   invalidationKeysDep <- Inc.newDependency -< invalidationKeys
 
   -- Step 1: Process metadata and collect dependency information.
+  bindA -< liftIO $ traceMarkerIO "Build Metadata"
   (outputs, collectedInfo) <-
     runWriterA buildAndCollectInfo -< (catalogMetadata, invalidationKeysDep)
   let (inconsistentObjects, unresolvedDependencies) = partitionCollectedInfo collectedInfo
 
+  bindA -< liftIO $ traceMarkerIO "Resolve Dependencies"
   -- Step 2: Resolve dependency information and drop dangling dependents.
   (resolvedOutputs, dependencyInconsistentObjects, resolvedDependencies) <-
     resolveDependencies -< (outputs, unresolvedDependencies)
 
   -- Step 3: Build the GraphQL schema.
+  bindA -< liftIO $ traceMarkerIO "Build GQL (Hasura)"
   (gqlContext, gqlSchemaInconsistentObjects) <- runWriterA buildGQLContext -<
     ( QueryHasura
     , (_boTables    resolvedOutputs)
@@ -139,6 +146,7 @@ buildSchemaCacheRule env = proc (catalogMetadata, invalidationKeys) -> do
     , (_actNonObjects $ _boCustomTypes resolvedOutputs)
     )
 
+  bindA -< liftIO $ traceMarkerIO "Build GQL (Relay)"
   -- Step 4: Build the relay GraphQL schema
   (relayContext, relaySchemaInconsistentObjects) <- runWriterA buildGQLContext -<
     ( QueryRelay
@@ -149,6 +157,7 @@ buildSchemaCacheRule env = proc (catalogMetadata, invalidationKeys) -> do
     , (_actNonObjects $ _boCustomTypes resolvedOutputs)
     )
 
+  bindA -< liftIO $ traceMarkerIO "Done"
   returnA -< SchemaCache
     { scTables = _boTables resolvedOutputs
     , scActions = _boActions resolvedOutputs
@@ -202,7 +211,7 @@ buildSchemaCacheRule env = proc (catalogMetadata, invalidationKeys) -> do
         >-> (| Inc.keyed (\_ (((tableRawInfo, tableRelationships), tableComputedFields), tableRemoteRelationships) -> do
                  let columns = _tciFieldInfoMap tableRawInfo
                  allFields <- addNonColumnFields -<
-                   (tableRawInfos, columns, M.map fst remoteSchemaMap, tableRelationships, tableComputedFields, tableRemoteRelationships)
+                   (tableRawInfos, columns, M.empty, tableRelationships, tableComputedFields, [])
                  returnA -< (tableRawInfo { _tciFieldInfoMap = allFields })) |)
 
       -- permissions and event triggers
@@ -271,7 +280,7 @@ buildSchemaCacheRule env = proc (catalogMetadata, invalidationKeys) -> do
         { _boTables = tableCache
         , _boActions = actionCache
         , _boFunctions = functionCache
-        , _boRemoteSchemas = remoteSchemaMap
+        , _boRemoteSchemas = M.empty
         , _boAllowlist = allowList
         , _boCustomTypes = annotatedCustomTypes
         , _boCronTriggers = cronTriggersMap

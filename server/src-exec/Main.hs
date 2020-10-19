@@ -1,6 +1,119 @@
-{-# LANGUAGE RecordWildCards #-}
-
 module Main where
+
+import Hasura.Prelude
+
+import qualified Data.HashMap.Strict.Extended as Map
+import qualified Data.HashSet as Set
+import qualified Language.GraphQL.Draft.Syntax as G
+
+import Control.Arrow.Extended
+import Control.Monad.Unique
+
+import Hasura.GraphQL.Context
+import Hasura.GraphQL.Execute.Types
+import Hasura.GraphQL.Parser.Monad
+import Hasura.GraphQL.Parser.Column
+import Hasura.GraphQL.Parser.Class
+import Hasura.GraphQL.Schema
+import Hasura.RQL.Types
+import Hasura.SQL.Types
+
+newtype AppM a = AppM { unAppM :: ReaderT SQLGenCtx IO a }
+  deriving (Functor, Applicative, Monad, MonadIO, MonadUnique)
+
+instance HasSQLGenCtx m => HasSQLGenCtx (ExceptT e m) where
+  askSQLGenCtx = lift askSQLGenCtx
+
+instance HasSQLGenCtx AppM where
+  askSQLGenCtx = AppM ask
+
+deriving instance Show a => Show (QueryDB a)
+deriving instance Show a => Show (ActionQuery a)
+deriving instance Show ParseError
+deriving instance Show UnpreparedValue
+deriving instance Show PGColumnValue
+deriving instance Show QueryReusability
+
+main :: IO ()
+main = do
+  let inputs =
+        ( QueryHasura
+        , Map.fromListOn (_tciName._tiCoreInfo)
+          [ TableInfo
+            { _tiCoreInfo = TableCoreInfo
+              { _tciName = QualifiedObject "public" "authors"
+              , _tciDescription = Nothing
+              , _tciSystemDefined = SystemDefined False
+              , _tciFieldInfoMap = Map.fromListOn fieldInfoName
+                [ FIColumn PGColumnInfo
+                  { pgiColumn = "id"
+                  , pgiName = $$(G.litName "id")
+                  , pgiPosition = 0
+                  , pgiType = PGColumnScalar PGInteger
+                  , pgiIsNullable = False
+                  , pgiDescription = Nothing
+                  }
+                , FIColumn PGColumnInfo
+                  { pgiColumn = "name"
+                  , pgiName = $$(G.litName "name")
+                  , pgiPosition = 0
+                  , pgiType = PGColumnScalar PGText
+                  , pgiIsNullable = False
+                  , pgiDescription = Nothing
+                  }
+                ]
+              , _tciPrimaryKey = Nothing
+              , _tciUniqueConstraints = mempty
+              , _tciForeignKeys = mempty
+              , _tciViewInfo = Nothing
+              , _tciEnumValues = Nothing
+              , _tciCustomConfig = emptyTableConfig
+              }
+            , _tiRolePermInfoMap = Map.fromList $ map ("user",)
+              [ RolePermInfo
+                  { _permIns = Nothing
+                  , _permSel = Just SelPermInfo
+                    { spiCols = Set.fromList ["id", "name"]
+                    , spiScalarComputedFields = Set.fromList []
+                    , spiFilter = gBoolExpTrue
+                    , spiLimit = Nothing
+                    , spiAllowAgg = True
+                    , spiRequiredHeaders = []
+                    }
+                  , _permUpd = Nothing
+                  , _permDel = Nothing
+                  }
+              ]
+            , _tiEventTriggerInfoMap = mempty
+            }
+          ]
+        , mempty
+        , mempty
+        , mempty
+        , mempty
+        )
+  ((_, ctxt), _) <- buildGQLContext
+    & runWriterA
+    & runKleisli
+    & ($ inputs)
+    & runExceptT
+    & unAppM
+    & flip runReaderT (SQLGenCtx False)
+    >>= (`onLeft` (error . show))
+
+  let query =
+        [ G.SelectionField G.Field
+          { _fAlias = Nothing
+          , _fName = $$(G.litName "__typename")
+          , _fArguments = mempty
+          , _fDirectives = []
+          , _fSelectionSet = []
+          }
+        ]
+  print $ gqlQueryParser ctxt query
+
+
+{-
 
 import           Control.Exception
 import           Data.Text.Conversions      (convertText)
@@ -24,7 +137,6 @@ import qualified Hasura.Tracing             as Tracing
 import qualified System.Exit                as Sys
 import qualified System.Posix.Signals       as Signals
 import qualified System.Metrics             as EKG
-
 
 main :: IO ()
 main = do
@@ -91,3 +203,5 @@ runApp env (HGEOptionsG rci hgeCmd) =
       liftIO $ runExceptT $ Q.runTx (_icPgPool initCtx) (txIso, Nothing) tx
 
     cleanSuccess = liftIO $ putStrLn "successfully cleaned graphql-engine related data"
+
+-}

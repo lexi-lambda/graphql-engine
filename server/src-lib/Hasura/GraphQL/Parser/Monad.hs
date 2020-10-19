@@ -32,6 +32,8 @@ import           Hasura.GraphQL.Parser.Internal.Parser
 import           Hasura.GraphQL.Parser.Schema
 import           Hasura.RQL.Types.Error                (Code)
 
+import Debug.Trace
+
 -- -------------------------------------------------------------------------------------------------
 -- schema construction
 
@@ -46,11 +48,15 @@ runSchemaT = flip evalStateT mempty . unSchemaT
 instance (MonadIO m, MonadUnique m, MonadParse n)
       => MonadSchema n (SchemaT n m) where
   memoizeOn name key buildParser = SchemaT do
+    -- liftIO $ traceIO $ ">>> memoizeOn " ++ TH.pprint name
     let parserId = ParserId name key
     parsersById <- get
     case DM.lookup parserId parsersById of
-      Just (ParserById parser) -> pure parser
+      Just (ParserById parser) -> do
+        -- liftIO $ traceIO $ "    HIT"
+        pure parser
       Nothing -> do
+        -- liftIO $ traceIO $ "    MISS"
         -- We manually do eager blackholing here using a MutVar rather than
         -- relying on MonadFix and ordinary thunk blackholing. Why? A few
         -- reasons:
@@ -75,14 +81,19 @@ instance (MonadIO m, MonadUnique m, MonadParse n)
         -- this action just reads, never writes, so that isn’t a concern.
         parserById <- liftIO $ unsafeInterleaveIO $ readIORef cell >>= \case
           Just parser -> pure $ ParserById parser
-          Nothing -> error $ unlines
-            [ "memoize: parser was forced before being fully constructed"
-            , "  parser constructor: " ++ TH.pprint name ]
+          Nothing -> do
+            -- traceIO $ unlines
+            --   [ "memoize: parser was forced before being fully constructed"
+            --   , "  parser constructor: " ++ TH.pprint name ]
+            error $ unlines
+              [ "memoize: parser was forced before being fully constructed"
+              , "  parser constructor: " ++ TH.pprint name ]
         put $! DM.insert parserId parserById parsersById
 
         unique <- newUnique
         parser <- addDefinitionUnique unique <$> unSchemaT buildParser
         liftIO $ writeIORef cell (Just parser)
+        -- liftIO $ traceIO $ "<<< memoizeOn " ++ TH.pprint name
         pure parser
 
 -- We can add a reader in two places.  I'm not sure which one is the correct

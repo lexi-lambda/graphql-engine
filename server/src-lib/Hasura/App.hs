@@ -81,6 +81,8 @@ import qualified Hasura.GraphQL.Transport.WebSocket.Server as WS
 import qualified Hasura.Tracing                            as Tracing
 import qualified System.Metrics                            as EKG
 
+import Debug.Trace
+
 
 data ExitCode
   = InvalidEnvironmentVariableOptionsError
@@ -335,8 +337,8 @@ runHGEServer env ServeOptions{..} InitCtx{..} pgExecCtx initTime shutdownApp pos
 
   authMode <- either (printErrExit AuthConfigurationError . T.unpack) return authModeRes
 
-  _idleGCThread <- C.forkImmortal "ourIdleGC" logger $ liftIO $
-    ourIdleGC logger (seconds 0.3) (seconds 10) (seconds 60)
+  -- _idleGCThread <- C.forkImmortal "ourIdleGC" logger $ liftIO $
+  --   ourIdleGC logger (seconds 0.3) (seconds 10) (seconds 60)
 
   HasuraApp app cacheRef cacheInitTime stopWsServer <- flip onException (flushLogger loggerCtx) $
     mkWaiApp env
@@ -578,6 +580,7 @@ ourIdleGC (Logger logger) idleInterval minGCInterval maxNoGCInterval =
              when (areOverdue && not areIdle) $
                logger $ UnstructuredLog LevelWarn $
                  "Overdue for a major GC: forcing one even though we don't appear to be idle"
+             traceEventIO "performMajorGC"
              performMajorGC
              startTimer >>= go (gcs+1) (major_gcs+1)
 

@@ -63,6 +63,7 @@ data RootField db remote action raw
   | RFRemote remote
   | RFAction action
   | RFRaw raw
+  deriving (Show)
 
 traverseDB :: forall db db' remote action raw f
         . Applicative f
