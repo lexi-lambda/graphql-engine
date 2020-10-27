@@ -1,3 +1,5 @@
+{-# OPTIONS_GHC -fprof-auto-top #-}
+{-# OPTIONS_GHC -ddump-stg-final #-}
 {-# LANGUAGE ViewPatterns #-}
 
 module Hasura.GraphQL.Schema.Mutation
@@ -37,6 +39,8 @@ import           Hasura.GraphQL.Schema.Select
 import           Hasura.GraphQL.Schema.Table
 import           Hasura.RQL.Types
 import           Hasura.SQL.Types
+
+import Hasura.GraphQL.Parser.Internal.Parser ((<<$!>>))
 
 
 
@@ -118,13 +122,14 @@ tableFieldsInput table insertPerms = memoizeOn 'tableFieldsInput table do
   objectFields <- catMaybes <$> for (Map.elems allFields) \case
     FIComputedField _ -> pure Nothing
     FIRemoteRelationship _ -> pure Nothing
-    FIColumn columnInfo ->
+    FIColumn columnInfo -> {-# SCC "tableFieldsInput/FIColumn" #-}
       whenMaybe (Set.member (pgiColumn columnInfo) (ipiCols insertPerms)) do
         let columnName = pgiName columnInfo
             columnDesc = pgiDescription columnInfo
         fieldParser <- P.column (pgiType columnInfo) (G.Nullability $ pgiIsNullable columnInfo)
-        pure $ P.fieldOptional columnName columnDesc fieldParser `mapField`
-          \(mkParameter -> value) -> AnnInsObj [(pgiColumn columnInfo, value)] [] []
+        pure $ P.fieldOptional columnName columnDesc fieldParser `mapField` \value ->
+          let !parameter = mkParameter value
+          in AnnInsObj [(pgiColumn columnInfo, parameter)] [] []
     FIRelationship relationshipInfo -> runMaybeT $ do
       let otherTable = riRTable  relationshipInfo
           relName    = riName    relationshipInfo
@@ -145,8 +150,8 @@ tableFieldsInput table insertPerms = memoizeOn 'tableFieldsInput table do
             Just $ AnnInsObj [] [] [RelIns rel relationshipInfo | not $ null $ _aiInsObj rel]
   let objectName = tableName <> $$(G.litName "_insert_input")
       objectDesc = G.Description $ "input type for inserting data into table " <>> table
-  pure $ P.object objectName (Just objectDesc) $ catMaybes <$> sequenceA objectFields
-    <&> mconcat
+  pure $ P.object objectName (Just objectDesc) $
+    mconcat . catMaybes <<$!>> sequenceA objectFields
 
 -- | Used by 'tableFieldsInput' for object data that is nested through object relationships
 objectRelationshipInput

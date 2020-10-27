@@ -172,9 +172,28 @@ inputParserInput = case subKind @'Input @k of { KRefl -> Refl; KBoth -> Refl }
 pInputParser :: forall k m a. 'Input <: k => Parser k m a -> InputValue Variable -> m a
 pInputParser = gcastWith (inputParserInput @k) pParser
 
+infixl 1 >>>=, <<&!>>
+infixr 1 =<<<
+infixl 4 <<$!>>
+
+class Bound t where
+  (>>>=) :: Monad m => t m a -> (a -> m b) -> t m b
+
+(=<<<) :: (Bound t, Monad m) => (a -> m b) -> t m a -> t m b
+(=<<<) = flip (>>>=)
+
+(<<$!>>) :: (Bound t, Monad m) => (a -> b) -> t m a -> t m b
+f <<$!>> m = m >>>= \x -> pure $! f x
+
+(<<&!>>) :: (Bound t, Monad m) => t m a -> (a -> b) -> t m b
+(<<&!>>) = flip (<<$!>>)
+
 infixl 1 `bind`
 bind :: Monad m => Parser k m a -> (a -> m b) -> Parser k m b
 bind p f = p { pParser = pParser p >=> f }
+
+instance Bound (Parser k) where
+  p >>>= f = p { pParser = pParser p >=> f }
 
 -- | Parses some collection of input fields. Build an 'InputFieldsParser' using
 -- 'field', 'fieldWithDefault', or 'fieldOptional', combine several together
@@ -199,6 +218,9 @@ instance Applicative m => Applicative (InputFieldsParser m) where
     (ifDefinitions a <> ifDefinitions b)
     (liftA2 (<*>) (ifParser a) (ifParser b))
 
+instance Bound InputFieldsParser where
+  p >>>= f = p { ifParser = ifParser p >=> f }
+
 -- | A parser for a single field in a selection set. Build a 'FieldParser'
 -- with 'selection' or 'subselection', and combine them together with
 -- 'selectionSet' to obtain a 'Parser'.
@@ -210,6 +232,9 @@ data FieldParser m a = FieldParser
 infixl 1 `bindField`
 bindField :: Monad m => FieldParser m a -> (a -> m b) -> FieldParser m b
 bindField p f = p { fParser = fParser p >=> f }
+
+instance Bound FieldParser where
+  p >>>= f = p { fParser = fParser p >=> f }
 
 -- | A single parsed field in a selection set.
 data ParsedSelection a
@@ -233,6 +258,7 @@ data ScalarRepresentation a where
   SRFloat :: ScalarRepresentation Double
   SRString :: ScalarRepresentation Text
 
+{-# SCC scalar #-}
 scalar
   :: MonadParse m
   => Name
@@ -289,6 +315,7 @@ string = scalar stringScalar Nothing SRString
 
 -- | As an input type, any string or integer input value should be coerced to ID as Text
 -- https://spec.graphql.org/June2018/#sec-ID
+{-# SCC identifier #-}
 identifier :: MonadParse m => Parser 'Both m Text
 identifier = Parser
   { pType = schemaType
@@ -305,6 +332,7 @@ identifier = Parser
     parseScientific = either (parseErrorWith ParseFailed . qeError)
       (pure . T.pack . show @Int) . runAesonParser scientificToInteger
 
+{-# SCC namedJSON #-}
 namedJSON :: MonadParse m => Name -> Maybe Description -> Parser 'Both m A.Value
 namedJSON name description = Parser
   { pType = schemaType
@@ -319,6 +347,7 @@ jsonb = namedJSON $$(litName "jsonb") Nothing
 
 -- | Explicitly define any desired scalar type.  This is unsafe because it does
 -- not mark queries as unreusable when they should be.
+{-# SCC unsafeRawScalar #-}
 unsafeRawScalar
   :: MonadParse n
   => Name
@@ -329,6 +358,7 @@ unsafeRawScalar name description = Parser
   , pParser = pure
   }
 
+{-# SCC enum #-}
 enum
   :: MonadParse m
   => Name
@@ -912,6 +942,7 @@ subselection_ name description bodyParser =
 -- -----------------------------------------------------------------------------
 -- helpers
 
+{-# SCC valueToJSON #-}
 valueToJSON :: MonadParse m => GType -> InputValue Variable -> m A.Value
 valueToJSON expected = peelVariable (Just expected) >=> valueToJSON'
   where
@@ -929,6 +960,7 @@ valueToJSON expected = peelVariable (Just expected) >=> valueToJSON'
       VObject objects     -> A.toJSON <$> traverse graphQLToJSON objects
       VVariable variable  -> valueToJSON' $ absurd <$> vValue variable
 
+{-# SCC jsonToGraphQL #-}
 jsonToGraphQL :: (MonadError Text m) => A.Value -> m (Value Void)
 jsonToGraphQL = \case
   A.Null        -> pure VNull
@@ -1005,6 +1037,7 @@ describeValueWith describeVariable = \case
 --   location: when either side has a non-null default value. That's
 --   because GraphQL conflates nullability and optinal fields (see
 --   Note [Optional fields and nullability] for more details).
+{-# SCC isVariableUsageAllowed #-}
 isVariableUsageAllowed
   :: Bool      -- ^ does the location have a default value
   -> GType     -- ^ the location type

@@ -69,8 +69,13 @@ type AnnSingleInsert v = (SingleObjIns v, RQL.MutationOutputG v)
 type AnnMultiInsert  v = (MultiObjIns  v, RQL.MutationOutputG v)
 
 instance Semigroup (AnnInsObj v) where
-  (AnnInsObj col1 obj1 rel1) <> (AnnInsObj col2 obj2 rel2) =
-    AnnInsObj (col1 <> col2) (obj1 <> obj2) (rel1 <> rel2)
+  AnnInsObj col1 obj1 rel1 <> AnnInsObj col2 obj2 rel2 =
+    AnnInsObj (col1 <>! col2) (obj1 <>! obj2) (rel1 <>! rel2)
+    where
+      xs <>! ys =
+        let zs = xs <> ys
+            !() = foldl' const () zs
+        in zs
 
 instance Monoid (AnnInsObj v) where
   mempty = AnnInsObj [] [] []

@@ -1,3 +1,5 @@
+{-# OPTIONS_GHC -fprof-auto-top #-}
+{-# OPTIONS_GHC -ddump-stg-final #-}
 {-# LANGUAGE Arrows #-}
 module Hasura.GraphQL.Schema
   ( buildGQLContext

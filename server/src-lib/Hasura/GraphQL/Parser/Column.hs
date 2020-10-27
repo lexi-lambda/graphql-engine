@@ -1,3 +1,4 @@
+{-# OPTIONS_GHC -fprof-auto-top #-}
 {-# LANGUAGE StrictData #-}
 
 module Hasura.GraphQL.Parser.Column
@@ -80,13 +81,13 @@ column columnType (Nullability isNullable) =
   -- during schema generation. Need to profile to see whether or not it’s a win.
   opaque . fmap (PGColumnValue columnType) <$> case columnType of
     PGColumnScalar scalarType -> withScalarType scalarType <$> case scalarType of
-      PGInteger -> pure (PGValInteger <$> int)
-      PGBoolean -> pure (PGValBoolean <$> boolean)
-      PGFloat   -> pure (PGValDouble  <$> float)
-      PGText    -> pure (PGValText    <$> string)
-      PGVarchar -> pure (PGValVarchar <$> string)
-      PGJSON    -> pure (PGValJSON  . Q.JSON  <$> json)
-      PGJSONB   -> pure (PGValJSONB . Q.JSONB <$> jsonb)
+      PGInteger -> pure (PGValInteger <<$!>> int)
+      PGBoolean -> pure (PGValBoolean <<$!>> boolean)
+      PGFloat   -> pure (PGValDouble  <<$!>> float)
+      PGText    -> pure (PGValText    <<$!>> string)
+      PGVarchar -> pure (PGValVarchar <<$!>> string)
+      PGJSON    -> pure (PGValJSON  . Q.JSON  <<$!>> json)
+      PGJSONB   -> pure (PGValJSONB . Q.JSONB <<$!>> jsonb)
 
       -- For all other scalars, we convert the value to JSON and use the
       -- FromJSON instance. The major upside is that this avoids having to write
@@ -129,13 +130,13 @@ column columnType (Nullability isNullable) =
       { pParser = \case
           GraphQLValue (VVariable var@Variable{ vInfo, vValue }) -> do
             typeCheck False (toGraphQLType $ pType parser) var
-            Opaque (Just vInfo) <$> pParser parser (absurd <$> vValue)
-          value -> Opaque Nothing <$> pParser parser value
+            Opaque (Just vInfo) <$!> pParser parser (absurd <$> vValue)
+          value -> Opaque Nothing <$!> pParser parser value
       }
 
-    withScalarType scalarType = fmap (WithScalarType scalarType) . possiblyNullable scalarType
+    withScalarType scalarType = (WithScalarType scalarType <<$!>>) . possiblyNullable scalarType
     possiblyNullable scalarType
-      | isNullable = fmap (fromMaybe $ PGNull scalarType) . nullable
+      | isNullable = (fromMaybe (PGNull scalarType) <<$!>>) . nullable
       | otherwise  = id
 
     mkEnumValue (RQL.EnumValue value, RQL.EnumValueInfo description) =

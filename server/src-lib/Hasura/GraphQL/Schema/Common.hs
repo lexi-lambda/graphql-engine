@@ -14,6 +14,7 @@ import qualified Hasura.RQL.DML.Select.Types   as RQL (Fields)
 
 import           Hasura.RQL.Types
 import           Hasura.SQL.Types
+import Hasura.GraphQL.Parser.Internal.Parser ((<<$!>>))
 
 data QueryContext =
   QueryContext
@@ -31,12 +32,13 @@ partialSQLExpToUnpreparedValue :: PartialSQLExp -> P.UnpreparedValue
 partialSQLExpToUnpreparedValue (PSESessVar pftype var) = P.UVSessionVar pftype var
 partialSQLExpToUnpreparedValue (PSESQLExp sqlExp)      = P.UVLiteral sqlExp
 
+{-# SCC mapField #-}
 mapField
-  :: Functor m
+  :: Monad m
   => P.InputFieldsParser m (Maybe a)
   -> (a -> b)
   -> P.InputFieldsParser m (Maybe b)
-mapField fp f = fmap (fmap f) fp
+mapField fp f = (f <$!>) <<$!>> fp
 
 parsedSelectionsToFields
   :: (Text -> a) -- ^ how to handle @__typename@ fields

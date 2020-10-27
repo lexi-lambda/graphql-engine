@@ -1,3 +1,5 @@
+{-# OPTIONS_GHC -fprof-auto-top #-}
+
 module Hasura.RQL.DML.Insert
  ( insertCheckExpr
  , insertOrUpdateCheckExpr
